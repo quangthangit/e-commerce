@@ -9,12 +9,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.ecommerce.Service.MailService;
+import com.ecommerce.Service.EmailService;
 import com.ecommerce.Service.UserService;
 
 @RestController
 @RequestMapping("/mail")
-public class MailController {
+public class EmailController {
 	
     @Autowired 
     private UserService userService;

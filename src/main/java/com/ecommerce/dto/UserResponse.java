@@ -1,4 +1,4 @@
-package com.ecommerce.webtoken;
+package com.ecommerce.dto;
 
 public class UserResponse {
 	

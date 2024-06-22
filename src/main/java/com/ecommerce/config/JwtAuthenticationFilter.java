@@ -12,8 +12,8 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import com.ecommerce.Service.JwtService;
 import com.ecommerce.Service.UserService;
-import com.ecommerce.webtoken.JwtService;
 
 import java.io.IOException;
 

@@ -1,4 +1,4 @@
-package com.ecommerce.common;
+package com.ecommerce.dto;
 
 public class MessageResponse {
 	

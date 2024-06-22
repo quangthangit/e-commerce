@@ -1,6 +1,6 @@
 package com.ecommerce.model;
 
-public class Mail {
+public class Email {
 	
 	private String subject;
 	private String message;

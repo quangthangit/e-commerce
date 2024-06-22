@@ -18,17 +18,19 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import com.ecommerce.Service.MailService;
+
+import com.ecommerce.Service.JwtService;
+import com.ecommerce.Service.EmailService;
 import com.ecommerce.Service.UserService;
-import com.ecommerce.common.MessageResponse;
-import com.ecommerce.model.Mail;
+import com.ecommerce.dto.MessageResponse;
+import com.ecommerce.dto.UserRequest;
+import com.ecommerce.dto.UserResponse;
+import com.ecommerce.model.Email;
 import com.ecommerce.model.User;
 import com.ecommerce.model.VerificationToken;
 import com.ecommerce.repository.UserRepository;
 import com.ecommerce.repository.VerificationTokenRepository;
-import com.ecommerce.webtoken.JwtService;
-import com.ecommerce.webtoken.UserRequest;
-import com.ecommerce.webtoken.UserResponse;
+import com.ecommerce.util.EmailUtil;
 
 @RestController
 public class AuthController {
@@ -48,7 +50,7 @@ public class AuthController {
 	private JwtService jwtService;
 
 	@Autowired
-	private MailService mailService;
+	private EmailService mailService;
 
 	@Autowired
 	private VerificationTokenRepository verificationTokenRepository;
@@ -72,21 +74,28 @@ public class AuthController {
 		String token = UUID.randomUUID().toString();
 		createVerificationToken(user.getEmail(), token);
 
-		sendVerificationEmail(user.getEmail(), token);
-	    return ResponseEntity.status(HttpStatus.OK).body(new MessageResponse("User registered successfully. Please check your email to verify your account."));
+		String confirmationUrl = baseUrl + "/mail/confirm?token=" + token;
+		String body = "<div style=\"background-color: #f3f3f3; padding: 20px; font-family: Arial, sans-serif; text-align: center;\">"
+				+ "<h3 style=\"color: #333;\">Click the link below to verify your email address:</h3>" + "<a href=\""
+				+ confirmationUrl + "\" style=\"color:#119744; font-weight: bold;\">" + "Verify Email" + "</a></div>";
+		
+		EmailUtil.sendVerificationEmail(user.getEmail(), token, mailService,
+				"Click the link below to verify your email address", body);
+		return ResponseEntity.status(HttpStatus.OK).body(
+				new MessageResponse("User registered successfully. Please check your email to verify your account."));
 	}
 
 	@PostMapping("/authenticate/login")
 	public ResponseEntity<?> authenticateAndGetToken(@RequestBody UserRequest loginReq) {
 		Authentication authentication = authenticateUser(loginReq);
 		if (!authentication.isAuthenticated()) {
-		    return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new MessageResponse("Invalid credentials"));
+			return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new MessageResponse("Invalid credentials"));
 		}
 
 		User user = findUserByEmail(loginReq.getUsername());
 		if (!user.isEnabled()) {
 			return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new MessageResponse("Account is not activated"));
-        }
+		}
 
 		String accessToken = generateTokenForUser(loginReq.getUsername());
 
@@ -129,17 +138,5 @@ public class AuthController {
 		verificationToken.setEmail(email);
 		verificationToken.setExpiryDate(new Date(System.currentTimeMillis() + 24 * 60 * 60 * 1000));
 		verificationTokenRepository.save(verificationToken);
-	}
-
-	private void sendVerificationEmail(String email, String token) throws Exception {
-		String confirmationUrl = baseUrl + "/mail/confirm?token=" + token;
-		Mail mail = new Mail();
-		String body = "<div style=\"background-color: #f3f3f3; padding: 20px; font-family: Arial, sans-serif; text-align: center;\">"
-				+ "<h3 style=\"color: #333;\">Click the link below to verify your email address:</h3>" + "<a href=\""
-				+ confirmationUrl + "\" style=\"color:#119744; font-weight: bold;\">" + "Verify Email" + "</a></div>";
-
-		mail.setSubject("Xác nhận tài khoản");
-		mail.setMessage(body);
-		mailService.sendMail(email, mail);
 	}
 }
