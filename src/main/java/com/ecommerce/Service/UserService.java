@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import com.ecommerce.model.User;
@@ -17,6 +18,8 @@ import com.ecommerce.repository.VerificationTokenRepository;
 @Service
 public class UserService implements UserDetailsService {
 
+    private static final String USER_ROLE = "USER";
+	
 	@Autowired
 	private UserRepository userRepository;
 
@@ -35,11 +38,11 @@ public class UserService implements UserDetailsService {
 		}
 	}
 
-	private String[] getRoles(User user) {
+	private String getRoles(User user) {
 		if (user.getRole() == null) {
-		    return new String[]{"USER"};
+		    return USER_ROLE;
 		}
-		return user.getRole().split(",");
+		return user.getRole();
 	}
 	
 	public void confirmUser(String token) {

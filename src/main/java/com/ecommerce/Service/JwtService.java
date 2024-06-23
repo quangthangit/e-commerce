@@ -21,6 +21,7 @@ public class JwtService {
 
 	@Value("${jwt.secret}")
     private String secret;
+
     private static final long VALIDITY = TimeUnit.MINUTES.toMillis(30);
 
     public String generateToken(UserDetails userDetails) {

@@ -1,8 +1,8 @@
 package com.ecommerce.controller;
 
 import java.util.Date;
-import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,6 +15,7 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -34,95 +35,102 @@ import com.ecommerce.util.EmailUtil;
 
 @RestController
 public class AuthController {
-	@Autowired
-	private UserRepository userRepository;
 
-	@Autowired
-	private PasswordEncoder passwordEncoder;
+    private static final String USER_ROLE = "USER";
+    private static final String EMAIL_VERIFICATION_SUBJECT = "Click the link below to verify your email address";
+    private static final String EMAIL_VERIFICATION_BODY_TEMPLATE = "<div style=\"background-color: #f3f3f3; padding: 20px; font-family: Arial, sans-serif; text-align: center;\">" +
+            "<h3 style=\"color: #333;\">Click the link below to verify your email address:</h3>" +
+            "<a href=\"%s\" style=\"color:#119744; font-weight: bold;\">Verify Email</a></div>";
+    private static final long TOKEN_EXPIRATION_TIME = 24 * 60 * 60 * 1000; 
 
-	@Autowired
-	private UserService userService;
+    @Autowired
+    private UserRepository userRepository;
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+    @Autowired
+    private UserService userService;
+    @Autowired
+    private AuthenticationManager authenticationManager;
+    @Autowired
+    private JwtService jwtService;
+    @Autowired
+    private EmailService mailService;
+    @Autowired
+    private VerificationTokenRepository verificationTokenRepository;
 
-	@Autowired
-	private AuthenticationManager authenticationManager;
+    @Value("${mail.url}")
+    private String baseUrl;
+    
+    @PostMapping("/authenticate/register")
+    public ResponseEntity<?> createUser(@RequestBody @Validated User user, BindingResult bindingResult) throws Exception {
+        if (bindingResult.hasErrors()) {
+            return ResponseEntity.badRequest().body(bindingResult.getAllErrors());
+        }
 
-	@Autowired
-	private JwtService jwtService;
+        if (userRepository.findByEmail(user.getEmail()).isPresent()) {
+        	return ResponseEntity.status(HttpStatus.FOUND).body(new MessageResponse("Email already registered"));
+        }
 
-	@Autowired
-	private EmailService mailService;
+        user.setRole(USER_ROLE);
+        user.setEnabled(false);
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
+        userRepository.save(user);
 
-	@Autowired
-	private VerificationTokenRepository verificationTokenRepository;
+        String token = UUID.randomUUID().toString();
+        createVerificationToken(user.getEmail(), token);
+        sendVerificationEmail(user.getEmail(), token);
 
-	@Value("${mail.url}")
-	private String baseUrl;
+        return ResponseEntity.status(HttpStatus.OK).body(new MessageResponse("User registered successfully. Please check your email to verify your account."));
+    }
 
-	@PostMapping("/authenticate/register")
-	public ResponseEntity<?> createUser(@RequestBody @Validated User user, BindingResult bindingResult)
-			throws Exception {
+    @PostMapping("/authenticate/login")
+    public ResponseEntity<?> authenticateAndGetToken(@RequestBody UserRequest loginReq) {
+        Authentication authentication = authenticateUser(loginReq);
+        if (!authentication.isAuthenticated()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new MessageResponse("Invalid credentials"));
+        }
 
-		if (bindingResult.hasErrors()) {
-			return ResponseEntity.badRequest().body(bindingResult.getAllErrors());
-		}
+        User user = findUserByEmail(loginReq.getUsername());
+        if (!user.isEnabled()) {
+        	return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new MessageResponse("Account is not activated"));
+        }
 
-		user.setRole("USER");
-		user.setEnabled(false);
-		user.setPassword(passwordEncoder.encode(user.getPassword()));
-		userRepository.save(user);
+        String accessToken = generateTokenForUser(loginReq.getUsername());
+        UserResponse userResponse = buildUserResponse(user, accessToken);
 
-		String token = UUID.randomUUID().toString();
-		createVerificationToken(user.getEmail(), token);
+        return ResponseEntity.ok(userResponse);
+    }
+    
+    
 
-		String confirmationUrl = baseUrl + "/mail/confirm?token=" + token;
-		String body = "<div style=\"background-color: #f3f3f3; padding: 20px; font-family: Arial, sans-serif; text-align: center;\">"
-				+ "<h3 style=\"color: #333;\">Click the link below to verify your email address:</h3>" + "<a href=\""
-				+ confirmationUrl + "\" style=\"color:#119744; font-weight: bold;\">" + "Verify Email" + "</a></div>";
-		
-		EmailUtil.sendVerificationEmail(user.getEmail(), token, mailService,
-				"Click the link below to verify your email address", body);
-		return ResponseEntity.status(HttpStatus.OK).body(
-				new MessageResponse("User registered successfully. Please check your email to verify your account."));
-	}
+    @GetMapping("/user/home")
+    public ResponseEntity<?> user() {
+    	return ResponseEntity.ok(new MessageResponse("USER LOGIN"));
+    } 
+    
+    @GetMapping("/admin/home")
+    public ResponseEntity<?> admin() {
+        return ResponseEntity.ok(new MessageResponse("ADMIN LOGIN"));
+    } 
+    
+    private Authentication authenticateUser(UserRequest loginReq) {
+        return authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(loginReq.getUsername(), loginReq.getPassword()));
+    }
 
-	@PostMapping("/authenticate/login")
-	public ResponseEntity<?> authenticateAndGetToken(@RequestBody UserRequest loginReq) {
-		Authentication authentication = authenticateUser(loginReq);
-		if (!authentication.isAuthenticated()) {
-			return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new MessageResponse("Invalid credentials"));
-		}
+    private User findUserByEmail(String email) {
+        return userRepository.findByEmail(email).orElseThrow(() -> new UsernameNotFoundException("User not found"));
+    }
 
-		User user = findUserByEmail(loginReq.getUsername());
-		if (!user.isEnabled()) {
-			return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new MessageResponse("Account is not activated"));
-		}
+    private String generateTokenForUser(String username) {
+        return jwtService.generateToken(userService.loadUserByUsername(username));
+    }
 
-		String accessToken = generateTokenForUser(loginReq.getUsername());
-
-		UserResponse userResponse = buildUserResponse(user, accessToken);
-
-		return ResponseEntity.ok(userResponse);
-	}
-
-	private Authentication authenticateUser(UserRequest loginReq) {
-		return authenticationManager
-				.authenticate(new UsernamePasswordAuthenticationToken(loginReq.getUsername(), loginReq.getPassword()));
-	}
-
-	private User findUserByEmail(String email) {
-		return userRepository.findByEmail(email).orElseThrow(() -> new UsernameNotFoundException("User not found"));
-	}
-
-	private String generateTokenForUser(String username) {
-		return jwtService.generateToken(userService.loadUserByUsername(username));
-	}
-
-	private UserResponse buildUserResponse(User user, String accessToken) {
+    private UserResponse buildUserResponse(User user, String accessToken) {
 		UserResponse userResponse = new UserResponse();
 		userResponse.setAccess_token(accessToken);
 		userResponse.setToken_type("Bearer ");
 		userResponse.setName(user.getName());
-		userResponse.setExpires_in(36000);
+		userResponse.setExpires_in(TimeUnit.MINUTES.toMillis(30));
 		userResponse.setAvatar(user.getAvatar());
 		userResponse.setPhone(user.getPhone());
 		userResponse.setRole(user.getRole());
@@ -132,11 +140,22 @@ public class AuthController {
 		return userResponse;
 	}
 
-	private void createVerificationToken(String email, String token) {
-		VerificationToken verificationToken = new VerificationToken();
-		verificationToken.setToken(token);
-		verificationToken.setEmail(email);
-		verificationToken.setExpiryDate(new Date(System.currentTimeMillis() + 24 * 60 * 60 * 1000));
-		verificationTokenRepository.save(verificationToken);
-	}
+    private void createVerificationToken(String email, String token) {
+        VerificationToken verificationToken = new VerificationToken(token, email, new Date(System.currentTimeMillis() + TOKEN_EXPIRATION_TIME));
+        verificationTokenRepository.save(verificationToken);
+    }
+
+    private void sendVerificationEmail(String email, String token) {
+        String confirmationUrl = baseUrl + "/mail/confirm?token=" + token;
+        String body = String.format(EMAIL_VERIFICATION_BODY_TEMPLATE, confirmationUrl);
+        try {
+			EmailUtil.sendVerificationEmail(email, token, mailService, EMAIL_VERIFICATION_SUBJECT, body);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+    }
+
+    private ResponseEntity<MessageResponse> buildForbiddenResponse(String message) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new MessageResponse(message));
+    }
 }
